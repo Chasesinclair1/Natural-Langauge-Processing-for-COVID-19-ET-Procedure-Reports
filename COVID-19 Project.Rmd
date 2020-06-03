@@ -1,0 +1,651 @@
+---
+title: "Task IIII"
+author: "Chase Sinclair"
+date: "5/5/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Honor code: 
+The Virginia Tech honor pledge for assignments is as follows: “I have neither given nor received unauthorized assistance on this assignment.” - Chase Sinclair
+
+### Import Data
+```{r}
+rm(list=ls())
+library(tm)
+library(SnowballC)
+library(XML)
+library(wordcloud)
+library(e1071)
+library(lsa)
+IV <- read.csv("~/3654/Project/data_for_Task_IV.csv")
+attach(IV)
+str(IV)
+```
+
+The dataset contains a corpus of patient safety reports related to ET. The incident reports should be familiar to you as they are similar to the reports that you manually rated in Task II. The dataset contains two variables: report, which contains the text of the incident report, and outcome, which is a binary variable describing whether the incident resulted in death/injury, or was it a simple malfunction. If you read the reports you should be able to determine the outcome, similar to what you did in Task II. However, our goal is to build a program that can predict the outcome by modeling the text of the incident report.
+
+#### How many incidents are there in the dataset? Of these, how many were death/injury outcomes, and how many were just malfunctions?
+```{r}
+nrow(IV)
+
+#Count of Malfunction/Death_or_Injury
+library(plyr)
+malfunction.count <- ldply(IV, function(c) sum(c=="Malfunction"))
+malfunction.count
+
+Death_or_Injury <- ldply(IV, function(c) sum(c=="Death_or_Injury"))
+Death_or_Injury
+
+```
+
+### Subset the data so the outcome variable is split with the "Malfunction" data in one and the "Death_or_Injury" data in another
+```{r}
+(malfunction <- subset(IV, outcome == "Malfunction"))
+(death_or_inj <- subset(IV, outcome == "Death_or_Injury"))
+```
+
+There are 1459 total incidents in the dataset. Of these, 1164 incidents resulted in a "Malfunction" and 295 incidents resulted in "Death or Injury"
+
+#### Create a VCorpus with the incident reports. 
+```{r}
+etcorpus1 = VCorpus(VectorSource(malfunction$report)) 
+etcorpus1
+
+etcorpus2 = VCorpus(VectorSource(death_or_inj$report)) 
+etcorpus2
+```
+
+#### Construct the document-term matrix for this text corpus. How many terms are there? How many entries of the DTM are zeroes? 
+```{r}
+mal_dtm = DocumentTermMatrix(etcorpus1, control = list(weighting = function(x)
+  weightTfIdf(x, normalize = TRUE), stopwords = TRUE))
+mal_dtm
+
+di_dtm = DocumentTermMatrix(etcorpus2, control = list(weighting = function(x)
+  weightTfIdf(x, normalize = TRUE), stopwords = TRUE))
+di_dtm
+```
+
+The DTM for etcorpus1 called et_dtm1 is a 1164 by 3529 matrix, which means it has 1164*3529 or 4,107,756 entries. The output “Non-/sparse entries: 27883/4079873” tells us that out of these 4,107,756 entries, 4079873 (or 99.3%) are zeroes, and only 27883 (or 0.006%) are non-zero.
+
+The DTM for etcorpus2 called et_dtm2 is a 295 by 3108 matrix, which means it has 295*3108 or 916,860 entries. The output “Non-/sparse entries: 9883/906977" tells us that out of these 916,860 entries, 906,977 (or 98.9%) are zeroes, and only 9883 (or 0.01%) are non-zero
+
+#### Combine Malfunction and Death_or_Injury
+```{r}
+combined = c(etcorpus1, etcorpus2)
+dtm = DocumentTermMatrix(combined, control = list(
+  weighting = function(x) weightTfIdf(x, normalize = TRUE),stopwords=TRUE))
+```
+
+####  From this document-term matrix, remove sparse terms, using sparsity thresholds of i) 95%, ii) 96%, iii) 97%, iv) 98%, and v) 99%. 
+
+##### 95%
+```{r}
+# 95%
+dtm95 = removeSparseTerms(dtm,0.95)
+dtm95
+```
+
+
+
+##### 96%
+```{r}
+# 96%
+dtm96 = removeSparseTerms(dtm, 0.96)
+dtm96
+```
+
+
+
+##### 97%
+```{r}
+# 97%
+dtm97 = removeSparseTerms(dtm, 0.97)
+dtm97
+```
+
+
+##### 98%
+```{r}
+# 98%
+dtm98 = removeSparseTerms(dtm, 0.98)
+dtm98
+```
+
+
+##### 99%
+```{r}
+# 99%
+dtm99 = removeSparseTerms(dtm, 0.99)
+dtm99
+```
+
+#### Construct the LSA (Latent Semantic Analysis) matrices with the same sparsity thresholds as above
+```{r}
+true.labs = c(rep("crude",1164),rep("acq",295))
+```
+
+##### 95% Sparity LSA
+```{r}
+train = c(sample(1164,815), 1164+sample(295,206)) #70% Training
+lsaSpace = lsa(dtm95)
+lsak = lsaSpace$tk #Docs  decomposed to k dimensions
+data1 = data.frame(true.labs,lsak) # construct a data frame for classification
+data1.train = data1[train,] # use the same 70% of the data for training as before (for fair comparison with DTM)
+data1.test = data1[-train,] # use the remaining 30% data for testing
+svm.model = svm(true.labs~., data = data1.train) # train SVM on training data
+svm.pred = predict(svm.model, data1.test[,-1]) # predict using trained SVM on test data
+table(svm.pred, data1.test$true.labs) # construct the confusion matrix
+```
+
+##### 96% Sparity LSA
+```{r}
+train = c(sample(1164,815), 1164+sample(295,206)) #70% Training
+lsaSpace = lsa(dtm96)
+lsak = lsaSpace$tk #Docs  decomposed to k dimensions
+data2 = data.frame(true.labs,lsak) # construct a data frame for classification
+data2.train = data2[train,] # use the same 70% of the data for training as before (for fair comparison with DTM)
+data2.test = data2[-train,] # use the remaining 30% data for testing
+svm.model = svm(true.labs~., data = data2.train) # train SVM on training data
+svm.pred = predict(svm.model, data2.test[,-1]) # predict using trained SVM on test data
+table(svm.pred, data2.test$true.labs) # construct the confusion matrixj
+```
+
+##### 97% Sparity LSA
+```{r}
+train = c(sample(1164,815), 1164+sample(295,206)) #70% Training
+lsaSpace = lsa(dtm97)
+lsak = lsaSpace$tk #Docs  decomposed to k dimensions
+data3 = data.frame(true.labs,lsak) # construct a data frame for classification
+data3.train = data3[train,] # use the same 70% of the data for training as before (for fair comparison with DTM)
+data3.test = data3[-train,] # use the remaining 30% data for testing
+svm.model = svm(true.labs~., data = data3.train) # train SVM on training data
+svm.pred = predict(svm.model, data3.test[,-1]) # predict using trained SVM on test data
+table(svm.pred, data3.test$true.labs) # construct the confusion matrix
+```
+
+##### 98% Sparity LSA
+```{r}
+train = c(sample(1164,815), 1164+sample(295,206)) #70% Training
+lsaSpace = lsa(dtm98)
+lsak = lsaSpace$tk #Docs  decomposed to k dimensions
+data4 = data.frame(true.labs,lsak) # construct a data frame for classification
+data4.train = data4[train,] # use the same 70% of the data for training as before (for fair comparison with DTM)
+data4.test = data4[-train,] # use the remaining 30% data for testing
+svm.model = svm(true.labs~., data = data4.train) # train SVM on training data
+svm.pred = predict(svm.model, data4.test[,-1]) # predict using trained SVM on test data
+table(svm.pred, data4.test$true.labs) # construct the confusion matrix
+```
+
+##### 99% Sparity LSA
+```{r}
+train = c(sample(1164,815), 1164+sample(295,206)) #70% Training
+lsaSpace = lsa(dtm99)
+lsak = lsaSpace$tk #Docs  decomposed to k dimensions
+data5 = data.frame(true.labs,lsak) # construct a data frame for classification
+data5.train = data5[train,] # use the same 70% of the data for training as before (for fair comparison with DTM)
+data5.test = data5[-train,] # use the remaining 30% data for testing
+svm.model = svm(true.labs~., data = data5.train) # train SVM on training data
+svm.pred = predict(svm.model, data5.test[,-1]) # predict using trained SVM on test data
+table(svm.pred, data5.test$true.labs) # construct the confusion matrix
+```
+
+#### For each sparsity level, use training proportion of (i) 70%, (ii) 80%, and (iii) 90% to perform text classification using SVM, for both DTM and LSA. For each combination, generate 1000 independent random partitions of the data into training and test data. Use the training sample to train the SVM classifiers and then use the trained SVM classifier to predict classes for the test data. Report the average mis-classification error (i.e, average of these 1000 mis-classification errors) for each parameter combination in the form of two tables as per the following template. 
+
+
+##### 60% Training (95% Sparity)
+```{r}
+niter = 1000
+cverr = matrix(NA, nrow=niter,ncol=2) # empty matrix to store CV errors
+for (i in 1:niter){
+  train = c(sample(1164,698), 1164+sample(295,177)) # use 90% of the data for training
+
+#1. Classification using DTM
+foo = as.matrix(dtm95)
+data_c = data.frame(true.labs,foo) # construct a data frame for classification
+data_c.train = data_c[train,] # use 90% of the data for training
+data_c.test = data_c[-train,] # use the remaining 10% data for testing
+svm.model = svm(true.labs~., data = data_c.train) # train SVM on training data
+svm.pred = predict(svm.model, data_c.test[,-1]) # predict using trained SVM on test data
+cverr[i,1] = mean(svm.pred != data_c.test$true.labs) # compute the cross-validation error rate
+
+#2. Classification using LSA
+lsaSpace = lsa(dtm95)
+lsak = lsaSpace$tk #Docs  decomposed to k dimensions
+data1_b = data.frame(true.labs,lsak) # construct a data frame for classification
+data1_b.train = data1_b[train,] # use the same 90% of the data for training as before (for fair comparison with DTM)
+data1_b.test = data1_b[-train,] # use the remaining 10% data for testing
+svm.model = svm(true.labs~., data = data1_b.train) # train SVM on training data
+svm.pred = predict(svm.model, data1_b.test[,-1]) # predict using trained SVM on test data
+cverr[i,2] = mean(svm.pred != data1_b.test$true.labs) # compute the cross-validation error rate
+
+}
+colMeans(cverr)
+```
+
+##### 70% Training (95% Sparity)
+```{r}
+niter = 1000
+cverr = matrix(NA, nrow=niter,ncol=2) # empty matrix to store CV errors
+for (i in 1:niter){
+  train = c(sample(1164,815), 1164+sample(295,206)) # use 70% of the data for training
+  
+#1. Classification using DTM
+foo = as.matrix(dtm95)
+data_a = data.frame(true.labs,foo) # construct a data frame for classification
+data_a.train = data_a[train,] # use 70% of the data for training
+data_a.test = data_a[-train,] # use the remaining 30% data for testing
+svm.model = svm(true.labs~., data = data_a.train) # train SVM on training data
+svm.pred = predict(svm.model, data_a.test[,-1]) # predict using trained SVM on test data
+cverr[i,1] = mean(svm.pred != data_a.test$true.labs) # compute the cross-validation error rate
+
+#2. Classification using LSA
+lsaSpace = lsa(dtm95)
+lsak = lsaSpace$tk #Docs  decomposed to k dimensions
+data1 = data.frame(true.labs,lsak) # construct a data frame for classification
+data1.train = data1[train,] # use the same 70% of the data for training as before (for fair comparison with DTM)
+data1.test = data1[-train,] # use the remaining 30% data for testing
+svm.model = svm(true.labs~., data = data1.train) # train SVM on training data
+svm.pred = predict(svm.model, data1.test[,-1]) # predict using trained SVM on test data
+cverr[i,2] = mean(svm.pred != data1.test$true.labs) # compute the cross-validation error rate
+
+}
+colMeans(cverr)
+```
+
+##### 80% Training (95% Sparity)
+```{r}
+niter = 1000
+cverr = matrix(NA, nrow=niter,ncol=2) # empty matrix to store CV errors
+for (i in 1:niter){
+  train = c(sample(1164,931), 1164+sample(295,236)) # use 80% of the data for training
+  
+#1. Classification using DTM
+foo = as.matrix(dtm95)
+data_b = data.frame(true.labs,foo) # construct a data frame for classification
+data_b.train = data_b[train,] # use 80% of the data for training
+data_b.test = data_b[-train,] # use the remaining 20% data for testing
+svm.model = svm(true.labs~., data = data_b.train) # train SVM on training data
+svm.pred = predict(svm.model, data_b.test[,-1]) # predict using trained SVM on test data
+cverr[i,1] = mean(svm.pred != data_b.test$true.labs) # compute the cross-validation error rate
+
+#2. Classification using LSA
+lsaSpace = lsa(dtm95)
+lsak = lsaSpace$tk #Docs  decomposed to k dimensions
+data1_a = data.frame(true.labs,lsak) # construct a data frame for classification
+data1_a.train = data1_a[train,] # use the same 80% of the data for training as before (for fair comparison with DTM)
+data1_a.test = data1_a[-train,] # use the remaining 20% data for testing
+svm.model = svm(true.labs~., data = data1_a.train) # train SVM on training data
+svm.pred = predict(svm.model, data1_a.test[,-1]) # predict using trained SVM on test data
+cverr[i,2] = mean(svm.pred != data1_a.test$true.labs) # compute the cross-validation error rate
+
+}
+colMeans(cverr)
+```
+
+##### 60% Training (96% Sparity)
+```{r}
+niter = 1000
+cverr = matrix(NA, nrow=niter,ncol=2) # empty matrix to store CV errors
+for (i in 1:niter){
+  train = c(sample(1164,698), 1164+sample(295,177)) # use 90% of the data for training
+  
+#1. Classification using DTM
+foo = as.matrix(dtm96)
+data_f = data.frame(true.labs,foo) # construct a data frame for classification
+data_f.train = data_f[train,] # use 90% of the data for training
+data_f.test = data_f[-train,] # use the remaining 10% data for testing
+svm.model = svm(true.labs~., data = data_f.train) # train SVM on training data
+svm.pred = predict(svm.model, data_f.test[,-1]) # predict using trained SVM on test data
+cverr[i,1] = mean(svm.pred != data_f.test$true.labs) # compute the cross-validation error rate
+
+#2. Classification using LSA
+lsaSpace = lsa(dtm96)
+lsak = lsaSpace$tk #Docs  decomposed to k dimensions
+data2_a = data.frame(true.labs,lsak) # construct a data frame for classification
+data2_a.train = data2_a[train,] # use the same 70% of the data for training as before (for fair comparison with DTM)
+data2_a.test = data2_a[-train,] # use the remaining 30% data for testing
+svm.model = svm(true.labs~., data = data2_a.train) # train SVM on training data
+svm.pred = predict(svm.model, data2_a.test[,-1]) # predict using trained SVM on test data
+cverr[i,2] = mean(svm.pred != data2_a.test$true.labs) # compute the cross-validation error rate
+
+}
+colMeans(cverr)
+```
+
+##### 70% Training (96% Sparity)
+```{r}
+niter = 1000
+cverr = matrix(NA, nrow=niter,ncol=2) # empty matrix to store CV errors
+for (i in 1:niter){
+  train = c(sample(1164,815), 1164+sample(295,206)) # use 70% of the data for training
+  
+#1. Classification using DTM
+foo = as.matrix(dtm96)
+data_d = data.frame(true.labs,foo) # construct a data frame for classification
+data_d.train = data_d[train,] # use 90% of the data for training
+data_d.test = data_d[-train,] # use the remaining 10% data for testing
+svm.model = svm(true.labs~., data = data_d.train) # train SVM on training data
+svm.pred = predict(svm.model, data_d.test[,-1]) # predict using trained SVM on test data
+cverr[i,1] = mean(svm.pred != data_d.test$true.labs) # compute the cross-validation error rate
+
+#2. Classification using LSA
+lsaSpace = lsa(dtm96)
+lsak = lsaSpace$tk #Docs  decomposed to k dimensions
+data2 = data.frame(true.labs,lsak) # construct a data frame for classification
+data2.train = data2[train,] # use the same 70% of the data for training as before (for fair comparison with DTM)
+data2.test = data2[-train,] # use the remaining 30% data for testing
+svm.model = svm(true.labs~., data = data2.train) # train SVM on training data
+svm.pred = predict(svm.model, data2.test[,-1]) # predict using trained SVM on test data
+cverr[i,2] = mean(svm.pred != data2.test$true.labs) # compute the cross-validation error rate
+
+}
+colMeans(cverr)
+```
+
+##### 80% Training (96% Sparity)
+```{r}
+niter = 1000
+cverr = matrix(NA, nrow=niter,ncol=2) # empty matrix to store CV errors
+for (i in 1:niter){
+  train = c(sample(1164,931), 1164+sample(295,236)) # use 80% of the data for training
+  
+#1. Classification using DTM
+foo = as.matrix(dtm96)
+data_e = data.frame(true.labs,foo) # construct a data frame for classification
+data_e.train = data_e[train,] # use 90% of the data for training
+data_e.test = data_e[-train,] # use the remaining 10% data for testing
+svm.model = svm(true.labs~., data = data_e.train) # train SVM on training data
+svm.pred = predict(svm.model, data_e.test[,-1]) # predict using trained SVM on test data
+cverr[i,1] = mean(svm.pred != data_e.test$true.labs) # compute the cross-validation error rate
+
+#2. Classification using LSA
+lsaSpace = lsa(dtm96)
+lsak = lsaSpace$tk #Docs  decomposed to k dimensions
+data2_a = data.frame(true.labs,lsak) # construct a data frame for classification
+data2_a.train = data2_a[train,] # use the same 70% of the data for training as before (for fair comparison with DTM)
+data2_a.test = data2_a[-train,] # use the remaining 30% data for testing
+svm.model = svm(true.labs~., data = data2_a.train) # train SVM on training data
+svm.pred = predict(svm.model, data2_a.test[,-1]) # predict using trained SVM on test data
+cverr[i,2] = mean(svm.pred != data2_a.test$true.labs) # compute the cross-validation error rate
+
+}
+colMeans(cverr)
+```
+
+##### 60% Training (97% Sparity)
+```{r}
+niter = 1000
+cverr = matrix(NA, nrow=niter,ncol=2) # empty matrix to store CV errors
+for (i in 1:niter){
+  train = c(sample(1164,698), 1164+sample(295,177)) # use 90% of the data for training
+  
+#1. Classification using DTM
+foo = as.matrix(dtm97)
+data_i = data.frame(true.labs,foo) # construct a data frame for classification
+data_i.train = data_i[train,] # use 90% of the data for training
+data_i.test = data_i[-train,] # use the remaining 10% data for testing
+svm.model = svm(true.labs~., data = data_i.train) # train SVM on training data
+svm.pred = predict(svm.model, data_i.test[,-1]) # predict using trained SVM on test data
+cverr[i,1] = mean(svm.pred != data_i.test$true.labs) # compute the cross-validation error rate
+
+#2. Classification using LSA
+lsaSpace = lsa(dtm97)
+lsak = lsaSpace$tk #Docs  decomposed to k dimensions
+data3_b = data.frame(true.labs,lsak) # construct a data frame for classification
+data3_b.train = data3_b[train,] # use the same 70% of the data for training as before (for fair comparison with DTM)
+data3_b.test = data3_b[-train,] # use the remaining 30% data for testing
+svm.model = svm(true.labs~., data = data3_b.train) # train SVM on training data
+svm.pred = predict(svm.model, data3_b.test[,-1]) # predict using trained SVM on test data
+cverr[i,2] = mean(svm.pred != data3_b.test$true.labs) # compute the cross-validation error rate
+
+}
+colMeans(cverr)
+```
+
+##### 70% Training (97% Sparity)
+```{r}
+niter = 1000
+cverr = matrix(NA, nrow=niter,ncol=2) # empty matrix to store CV errors
+for (i in 1:niter){
+  train = c(sample(1164,815), 1164+sample(295,206)) # use 70% of the data for training
+  
+#1. Classification using DTM
+foo = as.matrix(dtm97)
+data_g = data.frame(true.labs,foo) # construct a data frame for classification
+data_g.train = data_g[train,] # use 90% of the data for training
+data_g.test = data_g[-train,] # use the remaining 10% data for testing
+svm.model = svm(true.labs~., data = data_g.train) # train SVM on training data
+svm.pred = predict(svm.model, data_g.test[,-1]) # predict using trained SVM on test data
+cverr[i,1] = mean(svm.pred != data_g.test$true.labs) # compute the cross-validation error rate
+
+#2. Classification using LSA
+lsaSpace = lsa(dtm97)
+lsak = lsaSpace$tk #Docs  decomposed to k dimensions
+data3 = data.frame(true.labs,lsak) # construct a data frame for classification
+data3.train = data3[train,] # use the same 70% of the data for training as before (for fair comparison with DTM)
+data3.test = data3[-train,] # use the remaining 30% data for testing
+svm.model = svm(true.labs~., data = data3.train) # train SVM on training data
+svm.pred = predict(svm.model, data3.test[,-1]) # predict using trained SVM on test data
+cverr[i,2] = mean(svm.pred != data3.test$true.labs) # compute the cross-validation error rate
+
+}
+colMeans(cverr)
+```
+
+##### 80% Training (97% Sparity)
+```{r}
+niter = 1000
+cverr = matrix(NA, nrow=niter,ncol=2) # empty matrix to store CV errors
+for (i in 1:niter){
+  train = c(sample(1164,931), 1164+sample(295,236)) # use 80% of the data for training
+
+#1. Classification using DTM
+foo = as.matrix(dtm97)
+data_h = data.frame(true.labs,foo) # construct a data frame for classification
+data_h.train = data_h[train,] # use 90% of the data for training
+data_h.test = data_h[-train,] # use the remaining 10% data for testing
+svm.model = svm(true.labs~., data = data_h.train) # train SVM on training data
+svm.pred = predict(svm.model, data_h.test[,-1]) # predict using trained SVM on test data
+cverr[i,1] = mean(svm.pred != data_h.test$true.labs) # compute the cross-validation error rate
+
+#2. Classification using LSA
+lsaSpace = lsa(dtm97)
+lsak = lsaSpace$tk #Docs  decomposed to k dimensions
+data3_a = data.frame(true.labs,lsak) # construct a data frame for classification
+data3_a.train = data3_a[train,] # use the same 70% of the data for training as before (for fair comparison with DTM)
+data3_a.test = data3_a[-train,] # use the remaining 30% data for testing
+svm.model = svm(true.labs~., data = data3_a.train) # train SVM on training data
+svm.pred = predict(svm.model, data3_a.test[,-1]) # predict using trained SVM on test data
+cverr[i,2] = mean(svm.pred != data3_a.test$true.labs) # compute the cross-validation error rate
+
+}
+colMeans(cverr)
+```
+
+##### 60% Training (98% Sparity)
+```{r}
+niter = 1000
+cverr = matrix(NA, nrow=niter,ncol=2) # empty matrix to store CV errors
+for (i in 1:niter){
+  train = c(sample(1164,698), 1164+sample(295,177)) # use 90% of the data for training
+
+#1. Classification using DTM
+foo = as.matrix(dtm98)
+data_l = data.frame(true.labs,foo) # construct a data frame for classification
+data_l.train = data_l[train,] # use 90% of the data for training
+data_l.test = data_l[-train,] # use the remaining 10% data for testing
+svm.model = svm(true.labs~., data = data_l.train) # train SVM on training data
+svm.pred = predict(svm.model, data_l.test[,-1]) # predict using trained SVM on test data
+cverr[i,1] = mean(svm.pred != data_l.test$true.labs) # compute the cross-validation error rate
+
+#2. Classification using LSA
+lsaSpace = lsa(dtm98)
+lsak = lsaSpace$tk #Docs  decomposed to k dimensions
+data4_b = data.frame(true.labs,lsak) # construct a data frame for classification
+data4_b.train = data4_b[train,] # use the same 70% of the data for training as before (for fair comparison with DTM)
+data4_b.test = data4_b[-train,] # use the remaining 30% data for testing
+svm.model = svm(true.labs~., data = data4_b.train) # train SVM on training data
+svm.pred = predict(svm.model, data4_b.test[,-1]) # predict using trained SVM on test data
+cverr[i,2] = mean(svm.pred != data4_b.test$true.labs) # compute the cross-validation error rate
+
+}
+colMeans(cverr)
+```
+
+##### 70% Training (98% Sparity)
+```{r}
+niter = 1000
+cverr = matrix(NA, nrow=niter,ncol=2) # empty matrix to store CV errors
+for (i in 1:niter){
+  train = c(sample(1164,815), 1164+sample(295,206)) # use 70% of the data for training
+  
+#1. Classification using DTM
+foo = as.matrix(dtm98)
+data_j = data.frame(true.labs,foo) # construct a data frame for classification
+data_j.train = data_j[train,] # use 90% of the data for training
+data_j.test = data_j[-train,] # use the remaining 10% data for testing
+svm.model = svm(true.labs~., data = data_j.train) # train SVM on training data
+svm.pred = predict(svm.model, data_j.test[,-1]) # predict using trained SVM on test data
+cverr[i,1] = mean(svm.pred != data_j.test$true.labs) # compute the cross-validation error rate
+
+#2. Classification using LSA
+lsaSpace = lsa(dtm98)
+lsak = lsaSpace$tk #Docs  decomposed to k dimensions
+data4 = data.frame(true.labs,lsak) # construct a data frame for classification
+data4.train = data4[train,] # use the same 70% of the data for training as before (for fair comparison with DTM)
+data4.test = data4[-train,] # use the remaining 30% data for testing
+svm.model = svm(true.labs~., data = data4.train) # train SVM on training data
+svm.pred = predict(svm.model, data4.test[,-1]) # predict using trained SVM on test data
+cverr[i,2] = mean(svm.pred != data4.test$true.labs) # compute the cross-validation error rate
+
+}
+colMeans(cverr)
+```
+
+##### 80% Training (98% Sparity)
+```{r}
+niter = 1000
+cverr = matrix(NA, nrow=niter,ncol=2) # empty matrix to store CV errors
+for (i in 1:niter){
+  train = c(sample(1164,931), 1164+sample(295,236)) # use 80% of the data for training
+  
+#1. Classification using DTM
+foo = as.matrix(dtm98)
+data_k = data.frame(true.labs,foo) # construct a data frame for classification
+data_k.train = data_k[train,] # use 90% of the data for training
+data_k.test = data_k[-train,] # use the remaining 10% data for testing
+svm.model = svm(true.labs~., data = data_k.train) # train SVM on training data
+svm.pred = predict(svm.model, data_k.test[,-1]) # predict using trained SVM on test data
+cverr[i,1] = mean(svm.pred != data_k.test$true.labs) # compute the cross-validation error rate
+
+#2. Classification using LSA
+lsaSpace = lsa(dtm98)
+lsak = lsaSpace$tk #Docs  decomposed to k dimensions
+data4_a = data.frame(true.labs,lsak) # construct a data frame for classification
+data4_a.train = data4_a[train,] # use the same 70% of the data for training as before (for fair comparison with DTM)
+data4_a.test = data4_a[-train,] # use the remaining 30% data for testing
+svm.model = svm(true.labs~., data = data4_a.train) # train SVM on training data
+svm.pred = predict(svm.model, data4_a.test[,-1]) # predict using trained SVM on test data
+cverr[i,2] = mean(svm.pred != data4_a.test$true.labs) # compute the cross-validation error rate
+
+}
+colMeans(cverr)
+```
+
+##### 60% Training (99% Sparity)
+```{r}
+niter = 1000
+cverr = matrix(NA, nrow=niter,ncol=2) # empty matrix to store CV errors
+for (i in 1:niter){
+  train = c(sample(1164,698), 1164+sample(295,177)) # use 90% of the data for training
+  
+#1. Classification using DTM
+foo = as.matrix(dtm99)
+data_o = data.frame(true.labs,foo) # construct a data frame for classification
+data_o.train = data_o[train,] # use 90% of the data for training
+data_o.test = data_o[-train,] # use the remaining 10% data for testing
+svm.model = svm(true.labs~., data = data_o.train) # train SVM on training data
+svm.pred = predict(svm.model, data_o.test[,-1]) # predict using trained SVM on test data
+cverr[i,1] = mean(svm.pred != data_o.test$true.labs) # compute the cross-validation error rate
+
+#2. Classification using LSA
+lsaSpace = lsa(dtm99)
+lsak = lsaSpace$tk #Docs  decomposed to k dimensions
+data5_b = data.frame(true.labs,lsak) # construct a data frame for classification
+data5_b.train = data5_b[train,] # use the same 70% of the data for training as before (for fair comparison with DTM)
+data5_b.test = data5_b[-train,] # use the remaining 30% data for testing
+svm.model = svm(true.labs~., data = data5_b.train) # train SVM on training data
+svm.pred = predict(svm.model, data5_b.test[,-1]) # predict using trained SVM on test data
+cverr[i,2] = mean(svm.pred != data5_b.test$true.labs) # compute the cross-validation error rate
+
+}
+colMeans(cverr)  
+```
+
+##### 70% Training (99% Sparity)
+```{r}
+niter = 1000
+cverr = matrix(NA, nrow=niter,ncol=2) # empty matrix to store CV errors
+for (i in 1:niter){
+  train = c(sample(1164,815), 1164+sample(295,206)) # use 70% of the data for training
+
+#1. Classification using DTM
+foo = as.matrix(dtm99)
+data_m = data.frame(true.labs,foo) # construct a data frame for classification
+data_m.train = data_m[train,] # use 90% of the data for training
+data_m.test = data_m[-train,] # use the remaining 10% data for testing
+svm.model = svm(true.labs~., data = data_m.train) # train SVM on training data
+svm.pred = predict(svm.model, data_m.test[,-1]) # predict using trained SVM on test data
+cverr[i,1] = mean(svm.pred != data_m.test$true.labs) # compute the cross-validation error rate
+
+#2. Classification using LSA
+lsaSpace = lsa(dtm99)
+lsak = lsaSpace$tk #Docs  decomposed to k dimensions
+data5 = data.frame(true.labs,lsak) # construct a data frame for classification
+data5.train = data5[train,] # use the same 70% of the data for training as before (for fair comparison with DTM)
+data5.test = data5[-train,] # use the remaining 30% data for testing
+svm.model = svm(true.labs~., data = data5.train) # train SVM on training data
+svm.pred = predict(svm.model, data5.test[,-1]) # predict using trained SVM on test data
+cverr[i,2] = mean(svm.pred != data5.test$true.labs) # compute the cross-validation error rate
+
+}
+colMeans(cverr)
+```
+
+##### 80% Training (99% Sparity)
+```{r}
+niter = 1000
+cverr = matrix(NA, nrow=niter,ncol=2) # empty matrix to store CV errors
+for (i in 1:niter){
+  train = c(sample(1164,931), 1164+sample(295,236)) # use 80% of the data for training
+
+#1. Classification using DTM
+foo = as.matrix(dtm99)
+data_n = data.frame(true.labs,foo) # construct a data frame for classification
+data_n.train = data_n[train,] # use 90% of the data for training
+data_n.test = data_n[-train,] # use the remaining 10% data for testing
+svm.model = svm(true.labs~., data = data_n.train) # train SVM on training data
+svm.pred = predict(svm.model, data_n.test[,-1]) # predict using trained SVM on test data
+cverr[i,1] = mean(svm.pred != data_n.test$true.labs) # compute the cross-validation error rate
+
+#2. Classification using LSA
+lsaSpace = lsa(dtm99)
+lsak = lsaSpace$tk #Docs  decomposed to k dimensions
+data5_a = data.frame(true.labs,lsak) # construct a data frame for classification
+data5_a.train = data5_a[train,] # use the same 70% of the data for training as before (for fair comparison with DTM)
+data5_a.test = data5_a[-train,] # use the remaining 30% data for testing
+svm.model = svm(true.labs~., data = data5_a.train) # train SVM on training data
+svm.pred = predict(svm.model, data5_a.test[,-1]) # predict using trained SVM on test data
+cverr[i,2] = mean(svm.pred != data5_a.test$true.labs) # compute the cross-validation error rate
+
+}
+colMeans(cverr)  
+```
+
+
+
